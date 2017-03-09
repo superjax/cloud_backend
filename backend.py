@@ -57,21 +57,18 @@ class Backend():
             self.node_plot_positions[edge.to_id] = [y1, x1]
 
 
-
-
-
-
     def plot_graph(self):
         nx.draw_networkx(self.G, pos=self.node_plot_positions,
-                         with_labels=True, ax=self.ax, edge_color='k',
+                         with_labels=False, ax=self.ax, edge_color='k',
                          linewidths="0.3", node_color='c')
         for i, n in self.G.node.iteritems():
             pose = n['pose']
-            arrow_length = 0.2
+            arrow_length = 0.05
             dx = arrow_length * cos(pose[2])
             dy = arrow_length * sin(pose[2])
             # Be sure to convert to NWU for plotting
             self.ax.arrow(pose[1], pose[0], dy, dx,
-                     head_width=0.03, head_length=0.06, fc='c', ec='b')
+                     head_width=0.015, head_length=0.03, fc='c', ec='b')
+            plt.axis('equal')
         plt.show()
 
