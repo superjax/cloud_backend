@@ -9,17 +9,18 @@ class Controller:
     def __init__(self):
         self.state = Controller_State.STRAIGHT
         self.switch_probability = 0.01
-        self.vel_noise = 0.2
-        self.omega_noise = 0.2
+        self.vel_noise = 0.00000001
+        self.omega_noise = 0.00000001
         self.turn_direction = 1
-        self.nominal_omega = 1.0
+        self.nominal_omega = 0.1
         self.nominal_velocity = 1.0
 
     def control(self, t):
-        if np.random.uniform(0, 1.0) < self.switch_probability:
+        if t % 15 > 14.5:
+        # if np.random.uniform(0, 1.0) < self.switch_probability:
             if self.state == Controller_State.STRAIGHT:
                 self.state = Controller_State.TURNING
-                self.turn_direction = np.sign(np.random.uniform(-0.5, 0.5))
+                # self.turn_direction = np.sign(np.random.uniform(-0.5, 0.5))
             else:
                 self.state = Controller_State.STRAIGHT
 

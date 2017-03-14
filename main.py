@@ -2,10 +2,13 @@ from backend import *
 from robot import *
 from controller import *
 
-dt = 0.01
-time = np.arange(0, 600.01, dt)
+import subprocess
 
-Q = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+dt = 0.01
+time = np.arange(0, 130.01, dt)
+
+Q = np.array([[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.5]])
 model = Robot(0, 0, 0, Q)
 controller = Controller()
 input = [controller.control(t) for t in time]
@@ -15,22 +18,59 @@ for t, u in zip(time, input):
     if t % 1.0 == 0 and t > 0:
         model.reset()
 
-for edge in model.edges:
-    print edge
+# for edge in model.edges:
+#     print edge
 
 global_state = model.find_global_state()
 # model.draw_trajectory()
 debug = 1
 
-map = Backend()
+map = Backend("Noisy Map")
+true_map = Backend("True Map")
 
 i = 0
-P = [[0.1, 0, 0],
-     [0, 0.1, 0],
-     [0, 0, 0.1]]
 for edge in model.edges:
-    e = Edge(i, i+1, P, edge)
+    e = Edge(i, i+1, Q, edge)
     map.add_edge(e)
     i += 1
 
-map.plot_graph()
+i = 0
+P = [[0.00001, 0, 0],
+     [0, 0.00001, 0],
+     [0, 0, 0.00001]]
+for edge in model.true_edges:
+    e = Edge(i, i+1, P, edge)
+    true_map.add_edge(e)
+    i += 1
+
+loop_closures = true_map.simulate_loop_closures()
+print(len(loop_closures))
+
+
+for lc in loop_closures:
+    map.add_edge(lc)
+
+map.output_g2o("edges.g2o")
+
+# Run g2o
+subprocess.Popen("pwd")
+run_g2o = ("../g2o/bin/g2o", "-o", "output.g2o", "-v", "edges.g2o")
+g2o = subprocess.Popen(run_g2o, stdout=subprocess.PIPE)
+g2o.wait()
+
+print("loading g2o file")
+optimized_map = Backend("Optimized Map")
+optimized_map.load_g2o("output.g2o")
+
+print("plotting truth")
+true_map.plot_graph(figure_handle=1, edge_color='r', lc_color='y', arrows=True)
+print("plotting estimates")
+map.plot_graph(figure_handle=2, edge_color='g', lc_color='m', arrows=True)
+print("plotting optimized")
+optimized_map.plot_graph(figure_handle=3, edge_color='b', lc_color='m', arrows=True)
+plt.show()
+
+debug = 1
+#
+# true_map.plot_graph()
+# map.plot_graph()
