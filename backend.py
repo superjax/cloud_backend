@@ -79,11 +79,17 @@ class Backend():
             n_pose = np.array(n['pose'])
             m_pose = np.array(m['pose'])
             if np.linalg.norm(n_pose - m_pose) < self.LC_threshold:
-                P = [[0.1, 0, 0],
-                     [0, 0.1, 0],
-                     [0, 0, 0.1]]
-                transform = (m_pose - n_pose).tolist()
-                lc = Edge(i, j, P, transform)
+                P = [[0.0001, 0, 0],
+                     [0, 0.0001, 0],
+                     [0, 0, 0.0001]]
+                # Rotate transform to from frame
+                x1 = n_pose[0:2] - m_pose[0:2]
+                psi0 = n_pose[2]
+                R_I_to_n = np.array([[cos(psi0), sin(psi0)],
+                                     [sin(psi0), -cos(psi0)]])
+                dx = x1.dot(R_I_to_n.T)
+                dpsi = m_pose[2] - psi0
+                lc = Edge(i, j, P, [dx[0], dx[1], -dpsi])
                 self.add_edge(lc)
                 loop_closures.append(lc)
                 self.lc_edges.append((n['pose'], m['pose']))
@@ -111,22 +117,32 @@ class Backend():
                     " " + str(self.G.edge[i][j]['covariance'][2][2]) + "\n"
             f.write(line)
 
-    def load_g2o(self, edges_file):
-        f_e = open(edges_file, 'r')
+    def load_g2o(self, g2o_file):
+        # G2O Doesn't modify edges, so we have to re-calculate edges from the optimized
+        # node positions
+        f_e = open(g2o_file, 'r')
+        nodes = dict()
+        edges = []
         for line in f_e:
-            match = regex.search("EDGE_SE2", line)
-            if match != None:
+            if regex.search("VERTEX_SE2", line) != None:
+                n_str = line.split(" ")
+                id = int(n_str[1])
+                x = float(n_str[2])
+                y = float(n_str[3])
+                theta = float(n_str[4])
+                nodes[id] = [x, y, theta]
+                self.G.add_node(id, pose=[x, y, theta])
+                self.node_plot_positions[id] = [y, x]
+            elif regex.search("EDGE_SE2", line) != None:
                 e_str = line.split(" ")
                 from_id = int(e_str[1])
                 to_id = int(e_str[2])
-                x = float(e_str[3])
-                y = float(e_str[4])
-                theta = float(e_str[5])
-                covariance = [[float(e_str[6]), float(e_str[7]), float(e_str[8])],
-                              [float(e_str[7]), float(e_str[9]), float(e_str[10])],
-                              [float(e_str[8]), float(e_str[10]), float(e_str[11])]]
-                e = Edge(from_id, to_id, covariance, [x, y, theta])
-                self.add_edge(e)
+                self.G.add_edge(from_id, to_id)
+                edges.append([from_id, to_id])
+                from_pose = self.G.node[from_id]['pose']
+                to_pose = self.G.node[to_id]['pose']
+                if abs(from_id - to_id) > 1:
+                    self.lc_edges.append((from_pose, to_pose))
 
     def plot_graph(self, arrows=True, figure_handle=0, edge_color='k', lc_color='y'):
         if figure_handle:
@@ -154,5 +170,6 @@ class Backend():
         for lc in self.lc_edges:
             x = [lc[0][0], lc[1][0]]
             y = [lc[0][1], lc[1][1]]
-            self.ax.plot(y, x , lc_color, lw='1.5', zorder=1)
+            self.ax.plot(y, x , lc_color, lw='0.1', zorder=1)
+
 

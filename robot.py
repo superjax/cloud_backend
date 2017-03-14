@@ -121,7 +121,7 @@ class Robot():
         y0 += -x1*sin(psi0) + y1*cos(psi0)
         psi0 += psi1
 
-        return [x0, y0, psi0]
+        return [x0, y0, 0]
 
     def find_global_state(self):
         combined_edge = [self.edges[0]]

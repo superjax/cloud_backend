@@ -6,9 +6,9 @@ import subprocess
 
 
 dt = 0.01
-time = np.arange(0, 130.01, dt)
+time = np.arange(0, 600.01, dt)
 
-Q = np.array([[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.5]])
+Q = np.array([[0.1, 0, 0], [0, 0.1, 0], [0, 0, 0.1]])
 model = Robot(0, 0, 0, Q)
 controller = Controller()
 input = [controller.control(t) for t in time]
@@ -17,9 +17,6 @@ for t, u in zip(time, input):
     model.propagate_dynamics(u, dt)
     if t % 1.0 == 0 and t > 0:
         model.reset()
-
-# for edge in model.edges:
-#     print edge
 
 global_state = model.find_global_state()
 # model.draw_trajectory()
@@ -43,14 +40,14 @@ for edge in model.true_edges:
     true_map.add_edge(e)
     i += 1
 
+# Find loop closures
 loop_closures = true_map.simulate_loop_closures()
-print(len(loop_closures))
-
-
 for lc in loop_closures:
     map.add_edge(lc)
 
+# Smash through g2o
 map.output_g2o("edges.g2o")
+true_map.output_g2o("truth.g2o")
 
 # Run g2o
 subprocess.Popen("pwd")
@@ -65,12 +62,7 @@ optimized_map.load_g2o("output.g2o")
 print("plotting truth")
 true_map.plot_graph(figure_handle=1, edge_color='r', lc_color='y', arrows=True)
 print("plotting estimates")
-map.plot_graph(figure_handle=2, edge_color='g', lc_color='m', arrows=True)
+map.plot_graph(figure_handle=1, edge_color='g', lc_color='m', arrows=True)
 print("plotting optimized")
-optimized_map.plot_graph(figure_handle=3, edge_color='b', lc_color='m', arrows=True)
+optimized_map.plot_graph(figure_handle=1, edge_color='b', lc_color='m', arrows=True)
 plt.show()
-
-debug = 1
-#
-# true_map.plot_graph()
-# map.plot_graph()
