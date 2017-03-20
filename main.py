@@ -1,53 +1,82 @@
 from backend import *
 from robot import *
 from controller import *
-
+from tqdm import tqdm
 import subprocess
+from time import sleep
 
 
 dt = 0.01
-time = np.arange(0, 600.01, dt)
+time = np.arange(0, 540.01, dt)
 
-Q = np.array([[0.1, 0, 0], [0, 0.1, 0], [0, 0, 0.1]])
-model = Robot(0, 0, 0, Q)
-controller = Controller()
-input = [controller.control(t) for t in time]
-
-for t, u in zip(time, input):
-    model.propagate_dynamics(u, dt)
-    if t % 1.0 == 0 and t > 0:
-        model.reset()
-
-global_state = model.find_global_state()
-# model.draw_trajectory()
-debug = 1
+robots = []
+controllers = []
+num_robots = 1
+KF_frequency_s = 1.0
 
 map = Backend("Noisy Map")
 true_map = Backend("True Map")
 
-i = 0
-for edge in model.edges:
-    e = Edge(i, i+1, Q, edge)
-    map.add_edge(e)
-    i += 1
+start_pose_range = [5, 5, 6.28318530718]
 
-i = 0
-P = [[0.00001, 0, 0],
-     [0, 0.00001, 0],
-     [0, 0, 0.00001]]
-for edge in model.true_edges:
-    e = Edge(i, i+1, P, edge)
-    true_map.add_edge(e)
-    i += 1
+
+start_poses = np.array([np.random.uniform(-start_pose_range[i],
+                                 start_pose_range[i],
+                                 num_robots).tolist()
+               for i in range(3)]).T.tolist()
+start_poses = [[0, 0, 0]]
+
+P_perfect = [[0.00001, 0, 0], [0, 0.00001, 0], [0, 0, 0.00001]]
+G = np.array([[0.1, 0, 0], [0, 0.1, 0], [0, 0, 0.1]])
+for r in range(num_robots):
+    robots.append(Robot(r, G))
+    controllers.append(Controller())
+    control = [controllers[r].control(t) for t in time]
+
+    # Run each robot through the trajectory
+    print("simulating robot %d" % r)
+    for t, u in tqdm(zip(time, control)):
+        robots[r].propagate_dynamics(u, dt)
+        if t % KF_frequency_s == 0 and t > 0:
+            robots[r].reset()
+
+    # robots[r].draw_trajectory()
+
+    # Put edges in backends
+    i = 0
+    map.add_agent(r, start_pose=start_poses[r])
+    for edge in robots[r].edges:
+        e = Edge(r, str(r) + "_" + str(i), str(r) + "_" + str(i+1), G, edge)
+        map.add_edge(e)
+        i += 1
+
+    i = 0
+    true_map.add_agent(r, start_pose=start_poses[r])
+    for edge in robots[r].true_edges:
+        e = Edge(r, str(r) + "_" + str(i), str(r) + "_" + str(i+1), P_perfect, edge)
+        true_map.add_edge(e)
+        i += 1
 
 # Find loop closures
+print("finding loop closures")
 loop_closures = true_map.simulate_loop_closures()
+print("found %d loop closures" % len(loop_closures))
 for lc in loop_closures:
     map.add_edge(lc)
 
+# print("plotting truth")
+# true_map.plot_graph(figure_handle=1, edge_color='r', lc_color='y', arrows=True)
+# print("plotting estimates")
+# map.plot_graph(figure_handle=1, edge_color='g', lc_color='m', arrows=True)
+# # print("plotting optimized")
+# # optimized_map.plot_graph(figure_handle=1, edge_color='b', lc_color='m', arrows=True)
+# plt.show()
+
+
+
 # Smash through g2o
-map.output_g2o("edges.g2o")
-true_map.output_g2o("truth.g2o")
+print("running optimization")
+g2o_id_map = map.output_g2o("edges.g2o")
 
 # Run g2o
 subprocess.Popen("pwd")
@@ -56,13 +85,20 @@ g2o = subprocess.Popen(run_g2o, stdout=subprocess.PIPE)
 g2o.wait()
 
 print("loading g2o file")
-optimized_map = Backend("Optimized Map")
-optimized_map.load_g2o("output.g2o")
+optimized_map = Backend("O"
+                        "ptimized Map")
+optimized_map.load_g2o("output.g2o", g2o_id_map)
 
-print("plotting truth")
-true_map.plot_graph(figure_handle=1, edge_color='r', lc_color='y', arrows=True)
-print("plotting estimates")
-map.plot_graph(figure_handle=1, edge_color='g', lc_color='m', arrows=True)
-print("plotting optimized")
-optimized_map.plot_graph(figure_handle=1, edge_color='b', lc_color='m', arrows=True)
+f = open('map.txt', 'w')
+for id in g2o_id_map['vID_index'].iterkeys():
+    f.write(str(id) + ": " + str(g2o_id_map['vID_index'][id]) +"\n")
+
+for id in g2o_id_map['g2o_index'].iterkeys():
+    f.write(str(id) + ": "+ str(g2o_id_map['g2o_index'][id]) + "\n")
+f.close()
+
+print("plotting optimized vs truth")
+true_map.plot_graph(figure_handle=2, edge_color='r', lc_color='y', arrows=True)
+map.plot_graph(figure_handle=2, edge_color='g', lc_color='y', arrows=True)
+optimized_map.plot_graph(figure_handle=2, edge_color='b', lc_color='m', arrows=True)
 plt.show()

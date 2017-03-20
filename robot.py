@@ -3,31 +3,21 @@ from math import *
 import matplotlib.pyplot as plt
 
 class Robot():
-    def __init__(self, x0, y0, psi0, G):
-        self.x = x0
-        self.x_true = x0
-        self.y = y0
-        self.y_true = y0
-        self.psi = psi0
-        self.psi_true = psi0
+    def __init__(self, id, G):
+        self.id = id
+        self.x = 0
+        self.x_true = 0
+        self.y = 0
+        self.y_true = 0
+        self.psi = 0
+        self.psi_true = 0
         self.G = G
 
-        self.xi = 0
-        self.yi = 0
-        self.psii = 0
-
-        self.xi_true = 0
-        self.yi_true = 0
-        self.psii_true = 0
-
-        self.edges = [[x0, y0, psi0]]
-        self.true_edges = [[x0, y0, psi0]]
-        self.states = [[x0, y0, psi0]]
-        self.states_true = [[x0, y0, psi0]]
+        self.edges = []
+        self.true_edges = []
 
     def propagate_dynamics(self, u, dt):
         noise = np.random.multivariate_normal(np.array([0, 0, 0]), self.G)
-
         v = u[0]
         w = u[1]
 
@@ -55,39 +45,6 @@ class Robot():
             self.psi_true -= 2*pi
         elif self.psi_true <= -pi:
             self.psi_true += 2*pi
-
-
-
-        # Propagate inertial states
-        # Calculate Dynamics
-        xidot = v * cos(self.psii_true)
-        yidot = -v * sin(self.psii_true)
-        psidot = w
-        self.xi_true += xidot * dt
-        self.yi_true += yidot * dt
-        self.psii_true += psidot * dt
-        # wrap psi to +/- PI
-        if self.psii_true > pi:
-            self.psii_true -= 2*pi
-        elif self.psii_true <= -pi:
-            self.psii_true += 2*pi
-
-
-        xidot = v * cos(self.psii)
-        yidot = -v * sin(self.psii)
-        psidot = w
-        self.xi += (xidot + noise[0]) * dt
-        self.yi += (yidot + noise[1]) * dt
-        self.psii += (psidot + noise[2]) * dt
-        # wrap psi to +/- PI
-        if self.psii > pi:
-            self.psii -= 2*pi
-        elif self.psii <= -pi:
-            self.psii += 2*pi
-
-
-        self.states.append([self.xi, self.yi, self.psii])
-        self.states_true.append([self.xi_true, self.yi_true, self.psii_true])
 
         return np.array([[self.x, self.y, self.psi]]).T
 
@@ -121,7 +78,7 @@ class Robot():
         y0 += -x1*sin(psi0) + y1*cos(psi0)
         psi0 += psi1
 
-        return [x0, y0, 0]
+        return [x0, y0, psi0]
 
     def find_global_state(self):
         combined_edge = [self.edges[0]]
@@ -144,21 +101,12 @@ class Robot():
         y = global_state_array[:,1]
 
         x_true = true_global_state_array[:,0]
-        y_true = true_global_state_array[:, 1]
+        y_true = true_global_state_array[:,1]
 
-        x_global = np.array(self.states)
-        xi = x_global[:,0]
-        yi = x_global[:,1]
-
-        x_true_global = np.array(self.states_true)
-        xi_true = x_true_global[:,0]
-        yi_true = x_true_global[:,1]
-
-        plt.figure(1)
-        plt.plot(x, y, label="edges")
-        plt.plot(xi, yi, label="states")
-        plt.plot(x_true, y_true, label="true edges")
-        plt.plot(xi_true, yi_true, label="true states")
+        plt.figure()
+        plt.plot(y, x, label="edges")
+        plt.plot(y_true, x_true, label="true edges")
+        plt.axis("equal")
         plt.legend()
         plt.show()
 

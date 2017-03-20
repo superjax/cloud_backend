@@ -16,7 +16,8 @@ class Controller:
         self.nominal_velocity = 1.0
 
     def control(self, t):
-        if t % 15 > 14.5:
+        # if True:
+        if t % 16 > 14.5:
         # if np.random.uniform(0, 1.0) < self.switch_probability:
             if self.state == Controller_State.STRAIGHT:
                 self.state = Controller_State.TURNING
