@@ -3,7 +3,7 @@ from math import *
 import matplotlib.pyplot as plt
 
 class Robot():
-    def __init__(self, id, G):
+    def __init__(self, id, G, start_pose):
         self.id = id
         self.x = 0
         self.x_true = 0
@@ -13,8 +13,13 @@ class Robot():
         self.psi_true = 0
         self.G = G
 
+        self.xI = start_pose[0]
+        self.yI = start_pose[1]
+        self.psiI = start_pose[2]
+
         self.edges = []
         self.true_edges = []
+        self.keyframes = []
 
     def propagate_dynamics(self, u, dt):
         noise = np.random.multivariate_normal(np.array([0, 0, 0]), self.G)
@@ -23,7 +28,7 @@ class Robot():
 
         # Calculate Dynamics
         xdot = v * cos(self.psi)
-        ydot = -v * sin(self.psi)
+        ydot = v * sin(self.psi)
         psidot = w
 
         # Euler Integration (noisy)
@@ -46,9 +51,22 @@ class Robot():
         elif self.psi_true <= -pi:
             self.psi_true += 2*pi
 
+        # Propagate Inertial Truth (for BOW hash)
+        xdot = v * cos(self.psiI)
+        ydot = v * sin(self.psiI)
+        self.xI += xdot * dt
+        self.yI += ydot * dt
+        self.psiI += w * dt
+        # wrap psi to +/- PI
+        if self.psiI > pi:
+            self.psiI -= 2 * pi
+        elif self.psiI <= -pi:
+            self.psiI += 2 * pi
+
         return np.array([[self.x, self.y, self.psi]]).T
 
     def reset(self):
+        self.keyframes.append([self.xI, self.yI, self.psiI])
         edge = [self.x, self.y, self.psi]
         true_edge = [self.x_true, self.y_true, self.psi_true]
         self.edges.append(edge)
@@ -80,32 +98,11 @@ class Robot():
 
         return [x0, y0, psi0]
 
-    def find_global_state(self):
-        combined_edge = [self.edges[0]]
-        for edge in self.edges[1:]:
-            combined_edge.append(self.concatenate_edges(combined_edge[-1], edge))
-        self.global_state = combined_edge
-        return np.array(combined_edge)
-
-    def find_true_global_state(self):
-        combined_edge = [self.true_edges[0]]
-        for edge in self.true_edges[1:]:
-            combined_edge.append(self.concatenate_edges(combined_edge[-1], edge))
-        self.true_global_state = combined_edge
-        return np.array(combined_edge)
-
     def draw_trajectory(self):
-        global_state_array = self.find_global_state()
-        true_global_state_array = self.find_true_global_state()
-        x = global_state_array[:,0]
-        y = global_state_array[:,1]
-
-        x_true = true_global_state_array[:,0]
-        y_true = true_global_state_array[:,1]
 
         plt.figure()
-        plt.plot(y, x, label="edges")
-        plt.plot(y_true, x_true, label="true edges")
+        keyframes = np.array(self.keyframes)
+        plt.plot(keyframes[:,1], keyframes[:,0], label="true_edges")
         plt.axis("equal")
         plt.legend()
         plt.show()
