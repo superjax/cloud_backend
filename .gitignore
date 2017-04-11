@@ -1,2 +1,4 @@
 *.pyc
 *.idea*
+*.txt
+*.g2o

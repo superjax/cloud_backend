@@ -4,13 +4,10 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from math import *
 import numpy as np
-import itertools
 import regex
 from tqdm import tqdm
 import subprocess
-from joblib import Parallel, delayed
-import multiprocessing
-
+import scipy.spatial
 
 
 class Node():
@@ -39,7 +36,7 @@ class Agent():
 class Backend():
     def __init__(self, name="default"):
         self.name = name
-        self.G = nx.DiGraph()
+        self.G = nx.Graph()
         self.node_plot_positions = dict()
         self.lc_edges = []
         self.LC_threshold = 1.5
@@ -48,61 +45,63 @@ class Backend():
         self.agents = []
         self.optimized = True
 
+        self.keyframe_map = dict()
+        self.keyframes = []
+        self.current_keyframe_index = 0
+
+
+    def add_keyframe(self, KF, node_id):
+        # Add the keyframe to the map
+        self.keyframes.append(KF)
+        self.keyframe_map[self.current_keyframe_index] = node_id
+        self.current_keyframe_index += 1
+
+
     def add_agent(self, vehicle_id, KF):
         # Tell the backend to keep track of this agent
         new_agent = Agent(vehicle_id)
         self.agents.append(new_agent)
-        self.G.add_node(str(vehicle_id)+"_0", KF=KF)
+        self.G.add_node(str(vehicle_id)+"_000", KF=KF)
+
+        # Add keyframe to the map
+        self.add_keyframe(KF, str(vehicle_id)+"_000")
+
         if vehicle_id == 0:
             self.agents[0].loop_closed = True
+
 
     def add_edge(self, edge):
         # Add this edge to the networkx graph
         # TODO: add checks to make sure we know about this agent
-        self.G.add_edge(edge.from_id, edge.to_id, covariance=edge.covariance, transform=edge.transform)
-
+        self.G.add_edge(edge.from_id, edge.to_id, covariance=edge.covariance, transform=edge.transform,
+                        from_id=edge.from_id, to_id=edge.to_id)
         # Save the keyframe to the node
         self.G.node[edge.to_id]['KF'] = edge.KF
-
-        # Look for loop closures
-        node_id, lc_transform, P = self.find_loop_closures(edge.to_id)
-
-        if node_id:
-            # Add loop closure edge to networkx graph
-            self.G.add_edge(edge.from_id, node_id, covariance=P, transform=lc_transform)
+        #Add Keyframe to the map
+        self.add_keyframe(edge.KF, edge.to_id)
 
 
-    def find_loop_closures(self, node_id):
-        # compare all nodes, and see if the poses are similar
-        vehicle_id = int(node_id.split("_")[0])
-        node_num = int(node_id.split("_")[1])
-        KF_from = np.array(self.G.node[node_id]['KF'])
 
-        for (i, n) in self.G.node.iteritems():
-            # don't find loop closure between odometry
-            if vehicle_id == int(i.split("_")[0]):
-                # If these are from the same vehicle, make sure that these edges are far apart
-                if abs(int(i.split("_")[1]) - node_num) < 10:
-                    continue
+    def find_loop_closures(self):
+        # Build a KDtree to search
+        tree = scipy.spatial.KDTree(self.keyframes)
+        lc_count = 0
 
-            KF_to = np.array(n['KF'])
+        print("finding loop closures")
+        for from_id in tqdm(self.G.node):
+            KF_from = self.G.node[from_id]['KF']
+            indices = tree.query_ball_point(KF_from, self.LC_threshold, 2.0)
+            for index in indices:
+                if abs(self.current_keyframe_index - index) > 10:
+                    to_id = self.keyframe_map[index]
+                    P = [[0.001, 0, 0], [0, .001, 0], [0, 0, .001]]
+                    KF_to = self.keyframes[index]
+                    self.G.add_edge(from_id, to_id, covariance=P,
+                                    transform=self.find_transform(np.array(KF_from), np.array(KF_to)),
+                                    from_id=from_id, to_id=to_id)
+                    lc_count += 1
+        print("found %d loop closures" % lc_count)
 
-            # If this is a loop closure
-            if np.linalg.norm(KF_to - KF_from) < self.LC_threshold:
-                # If these are different agents, signal that these agents have been loop closed
-                if self.agents[int(vehicle_id)].loop_closed or self.agents[int(i.split("_")[0])].loop_closed:
-                    self.agents[int(vehicle_id)].loop_closed = True
-                    self.agents[int(i.split("_")[0])].loop_closed = True
-
-                # Covariance Matrix for Loop Closure Edge
-                P = [[0.0000001, 0, 0],
-                     [0, .0000001, 0],
-                     [0, 0, .0000001]]
-
-                return i, self.find_transform(KF_from, KF_to), P
-
-        # We didn't find a loop closure
-        return 0, 0, 0
 
     def find_transform(self, from_pose, to_pose):
         # Rotate transform frame to the "from_node" frame
@@ -116,127 +115,172 @@ class Backend():
         # Pack up and output the loop closure
         return [dx[0], dx[1], dpsi]
 
-    def optimize(self):
+    def find_pose(self, graph, node, origin_node):
+        if 'pose' in graph.node[node]:
+            return graph.node[node]['pose']
+        else:
+            path_to_origin = nx.shortest_path(graph, node, origin_node)
+            edge = graph.edge[node][path_to_origin[1]]
+            # find the pose of the next closest node (this is recursive)
+            nearest_known_pose = self.find_pose(graph, path_to_origin[1], origin_node)
 
-        self.plot_graph(self.G)
+            # edges could be going in either direction
+            # if the edge is pointing to this node
+            if edge['from_id'] == path_to_origin[1]:
+                psi0 = nearest_known_pose[2]
+                x = nearest_known_pose[0] + edge['transform'][0] * cos(psi0) - edge['transform'][1] * sin(psi0)
+                y = nearest_known_pose[1] + edge['transform'][0] * sin(psi0) + edge['transform'][1] * cos(psi0)
+                psi = psi0 + edge['transform'][2]
+            else:
+                psi = nearest_known_pose[2] - edge['transform'][2]
+                x = nearest_known_pose[0] - edge['transform'][0] * cos(psi) + edge['transform'][1] * sin(psi)
+                y = nearest_known_pose[1] - edge['transform'][0] * sin(psi) - edge['transform'][1] * cos(psi)
+
+            graph.node[node]['pose'] = [x, y, psi]
+            return [x, y, psi]
+
+    def optimize(self):
+        # Find loop closures
+        self.find_loop_closures()
+
+        # plt.ion()
+        self.plot_graph(self.G, "full graph (TRUTH)")
+
+        # Get a minimum spanning tree of nodes connected to our origin node
+        min_spanning_tree = nx.Graph()
+        for component in sorted(nx.connected_component_subgraphs(self.G, copy=True), key=len, reverse=True):
+            if '0_000' in component.node:
+                self.plot_graph(component, "connected component truth", figure_handle=2, edge_color='r')
+                # Find Initial Guess for node positions
+                component.node['0_000']['pose'] = [0, 0, 0]
+                print("seeding initial graph")
+                for node in tqdm(component.nodes()):
+                    self.find_pose(component, node, '0_000')
+                self.plot_graph(component, "connected component unoptimized", figure_handle=3, edge_color='m')
+
+                # Let GTSAM crunch it
+                print("optimizing")
+                optimized_component = self.run_g2o(component)
+                self.plot_graph(optimized_component, "optimized", figure_handle=4, edge_color='b')
+
+                debug = 1
         plt.show()
 
-        # Get a minimum spanning tree
-        graph_undirected = nx.Graph()
-        graph_directed = nx.DiGraph()
-
-        for agent in self.agents[1:]:
-            if agent.loop_closed:
-
-                ####### I AM HERE ###### 3/23/2017
+        debug = 1
 
 
 
 
 
-    def run_g2o(self, graph, initialized):
-        g2o_id_map = self.output_g2o(graph, initialized, "edges.g2o")
+
+
+
+
+    def run_g2o(self, graph):
+        self.output_g2o(graph, "edges.g2o")
 
         # Run g2o
-        run_g2o_str = ("../g2o/bin/g2o", "-o", "output.g2o", "-v", "edges.g2o")
-        g2o = subprocess.Popen(run_g2o_str, stdout=subprocess.PIPE)
+        run_g2o_str = "../jax_optimizer/build/jax_optimizer"
+        g2o = subprocess.Popen(run_g2o_str)
         g2o.wait()
 
-        return self.load_g2o("output.g2o", g2o_id_map)
+        return self.load_g2o("output.g2o")
 
 
-    def output_g2o(self, graph, initialized, filename):
-        node_id_map = dict()
-        node_id_map['g2o_index'] = dict()
-        node_id_map['vID_index'] = dict()
+    def output_g2o(self, graph, filename):
         f = open(filename, 'w')
         g2o_index = 0
 
         # Write nodes to file
-        for i in graph.nodes_iter():
-            node_id_map['g2o_index'][g2o_index] = i
-            node_id_map['vID_index'][i] = g2o_index
-            # If we have initialized these nodes, then provide the initial guess to g2o
-            if initialized:
-                line = "VERTEX_SE2 " + str(g2o_index) + " " + \
-                    str(self.G.node[i]['pose'][0]) + " " + \
-                    str(self.G.node[i]['pose'][1]) + " " + \
-                    str(self.G.node[i]['pose'][2]) + "\n"
-            # Otherwise, we can't do better than all zeros
-            else:
-                line = "VERTEX_SE2 " + str(g2o_index) + " " + \
-                    str(0) + " " + str(0) + " " + str(0) + "\n"
+        for i in sorted(graph.nodes_iter()):
+            if 'pose' not in graph.node[i]:
+                error = 1
+            line = "VERTEX_SE2 " + i + " " + \
+                str(graph.node[i]['pose'][0]) + " " + \
+                str(graph.node[i]['pose'][1]) + " " + \
+                str(graph.node[i]['pose'][2]) + "\n"
             f.write(line)
             g2o_index += 1
 
         # Fix agent 0, node 0 as global origin (Could be moved)
-        f.write("FIX " + str(node_id_map['vID_index']['0_0']) + "\n")
+        f.write("FIX 0_0000\n")
 
         # Write edges to file
-        for i, edge in self.G.adjacency_iter():
-            for j in edge.iterkeys():
-                line = "EDGE_SE2 " + str(node_id_map['vID_index'][i]) + \
-                        " " + str(node_id_map['vID_index'][j]) + \
-                        " " + str(self.G.edge[i][j]['transform'][0]) + \
-                        " " + str(self.G.edge[i][j]['transform'][1]) + \
-                        " " + str(self.G.edge[i][j]['transform'][2]) + \
-                        " " + str(1.0/self.G.edge[i][j]['covariance'][0][0]) + \
-                        " " + str(self.G.edge[i][j]['covariance'][0][1]) + \
-                        " " + str(self.G.edge[i][j]['covariance'][0][2]) + \
-                        " " + str(1.0/self.G.edge[i][j]['covariance'][1][1]) + \
-                        " " + str(self.G.edge[i][j]['covariance'][1][2]) + \
-                        " " + str(1.0/self.G.edge[i][j]['covariance'][2][2]) + "\n"
-                f.write(line)
-        return node_id_map
+        for pair in graph.edges():
+            i = pair[0]
+            j = pair[1]
+            edge = graph.edge[i][j]
+            line = "EDGE_SE2 " + edge['from_id'] + \
+                    " " + edge['to_id'] + \
+                    " " + str(self.G.edge[i][j]['transform'][0]) + \
+                    " " + str(self.G.edge[i][j]['transform'][1]) + \
+                    " " + str(self.G.edge[i][j]['transform'][2]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][0][0]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][0][1]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][0][2]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][1][1]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][1][2]) + \
+                    " " + str(self.G.edge[i][j]['covariance'][2][2]) + "\n"
+            f.write(line)
 
-    def load_g2o(self, g2o_file, node_id_map):
+    def load_g2o(self, g2o_file):
         f_e = open(g2o_file, 'r')
         nodes = dict()
-        graph = nx.DiGraph()
+        graph = nx.Graph()
         for line in f_e:
             # Look for the optimized node positions
             if regex.search("VERTEX_SE2", line):
                 n_str = line.split(" ")
-                node_id = node_id_map['g2o_index'][int(n_str[1])]
+                node_id = n_str[1]
                 x = float(n_str[2])
                 y = float(n_str[3])
                 theta = float(n_str[4])
                 nodes[node_id] = [x, y, theta]
-                graph.add_node(node_id, pose=[x, y, theta], vehicle_id=node_id.split("_")[0])
+                graph.add_node(node_id, pose=[x, y, theta], vehicle_id=node_id.split("_")[0],
+                               KF=self.G.node[node_id]['KF'])
 
             # G2O Doesn't modify edges, so we have to re-calculate edges from the optimized
             # node positions
             elif regex.search("EDGE_SE2", line):
+                line = line.rstrip('\n')
                 e_str = line.split(" ")
-                from_id = node_id_map['g2o_index'][int(e_str[1])]
-                to_id = node_id_map['g2o_index'][int(e_str[2])]
-                transform = self.find_transform(graph[from_id]['pose'], graph[to_id]['pose'])
+                from_id = e_str[1]
+                to_id = e_str[2]
+                transform = self.find_transform(np.array(graph.node[from_id]['pose']),
+                                                np.array(graph.node[to_id]['pose']))
                 # Total guess about covariance for optimized edges
-                P = [[0.0000001, 0, 0],
-                     [0, .0000001, 0],
-                     [0, 0, .0000001]]
+                P = [[0.00001, 0, 0],
+                     [0, 0.00001, 0],
+                     [0, 0, 0.00001]]
                 graph.add_edge(from_id, to_id, transform=transform, covariance=P)
         return graph
 
-    def plot_graph(self, graph, name='default', arrows=True, figure_handle=0, edge_color='m', lc_color='y'):
+    def plot_graph(self, graph, title='default', name='default', arrows=False, figure_handle=0, edge_color='m', lc_color='y'):
         if figure_handle:
             plt.figure(figure_handle)
         else:
             plt.figure()
+            plt.clf()
+        plt.title(title)
         ax = plt.subplot(111)
-        plt.title(name)
 
         # Get positions of all nodes
         plot_positions = dict()
         for (i, n) in graph.node.iteritems():
-            plot_positions[i] = [n['KF'][1], n['KF'][0]]
+            if 'pose' in n:
+                plot_positions[i] = [n['pose'][1], n['pose'][0]]
+            else:
+                plot_positions[i] = [n['KF'][1], n['KF'][0]]
 
         nx.draw_networkx(graph, pos=plot_positions,
-                         with_labels=True, ax=ax, edge_color=edge_color,
+                         with_labels=False, ax=ax, edge_color=edge_color,
                          linewidths="0.3", node_color='c', node_shape='')
         if arrows:
-            for i, n in self.G.node.iteritems():
-                pose = n['KF']
+            for i, n in graph.node.iteritems():
+                if 'pose' in n:
+                    pose = n['pose']
+                else:
+                    pose = n['KF']
                 arrow_length = 1.0
                 dx = arrow_length * cos(pose[2])
                 dy = arrow_length * sin(pose[2])

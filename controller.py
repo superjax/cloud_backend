@@ -15,7 +15,7 @@ class Controller:
         self.nominal_omega = 0.5
         self.nominal_velocity = 1.0
 
-    def control(self, t):
+    def control(self, t, pose):
         # if True:
         if t % 10 > 7:
         # if np.random.uniform(0, 1.0) < self.switch_probability:
