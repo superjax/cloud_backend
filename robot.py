@@ -65,6 +65,9 @@ class Robot():
 
         return np.array([[self.x, self.y, self.psi]]).T
 
+    def state(self):
+        return [self.xI, self.yI, self.psiI]
+
     def reset(self):
         self.keyframes.append([self.xI, self.yI, self.psiI])
         edge = [self.x, self.y, self.psi]

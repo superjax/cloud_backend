@@ -5,23 +5,21 @@ from tqdm import tqdm
 
 
 dt = 0.1
-time = np.arange(0, 60.01, dt)
+time = np.arange(0, 600.01, dt)
 
 robots = []
 controllers = []
-num_robots = 300
+num_robots = 100
 KF_frequency_s = 1.0
 
 map = Backend("Noisy Map")
 true_map = Backend("True Map")
 
-start_pose_range = [75, 75, 6.28318530718]
+start_pose_range = [5, 5, 2]
 
-
-start_poses = np.array([np.random.uniform(-start_pose_range[i],
-                                 start_pose_range[i],
-                                 num_robots).tolist()
-               for i in range(3)]).T.tolist()
+start_poses = [[randint(-start_pose_range[0], start_pose_range[0])*10,
+               randint(-start_pose_range[1], start_pose_range[1])*10,
+               randint(-start_pose_range[2], start_pose_range[2])*pi/2] for r in range(num_robots)]
 start_poses[0] = [0, 0, 0]
 
 P_perfect = [[0.00001, 0, 0], [0, 0.00001, 0], [0, 0, 0.00001]]
@@ -30,9 +28,9 @@ print("simulating robots")
 for r in tqdm(range(num_robots)):
     # Run each robot through the trajectory
     robots.append(Robot(r, G, start_poses[r]))
-    controllers.append(Controller())
-    control = [controllers[r].control(t) for t in time]
-    for t, u in zip(time, control):
+    controllers.append(Controller(start_poses[r]))
+    for t in time:
+        u = controllers[r].control(t, robots[r].state())
         robots[r].propagate_dynamics(u, dt)
         if t % KF_frequency_s == 0 and t > 0:
             robots[r].reset()
