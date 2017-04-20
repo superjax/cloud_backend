@@ -22,7 +22,9 @@ class Robot():
         self.keyframes = []
 
     def propagate_dynamics(self, u, dt):
-        noise = np.random.multivariate_normal(np.array([0, 0, 0]), self.G)
+        noise =np.array([[np.random.normal(0, self.G[0, 0])],
+                         [np.random.normal(0, self.G[1, 1])],
+                         [np.random.normal(0, self.G[2, 2])]])
         v = u[0]
         w = u[1]
 
@@ -32,9 +34,9 @@ class Robot():
         psidot = w
 
         # Euler Integration (noisy)
-        self.x +=   (xdot + noise[0]) * dt
-        self.y +=   (ydot + noise[1]) * dt
-        self.psi += (psidot + noise[2]) * dt
+        self.x +=   (xdot + noise[0,0]) * dt
+        self.y +=   (ydot + noise[1,0]) * dt
+        self.psi += (psidot + noise[2,0]) * dt
         # wrap psi to +/- PI
         if self.psi > pi:
             self.psi -= 2*pi

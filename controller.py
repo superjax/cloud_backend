@@ -5,8 +5,6 @@ from enum import Enum
 
 class Controller:
     def __init__(self, init_pose):
-        self.vel_noise = 0.00000001
-        self.omega_noise = 0.00000001
         self.nominal_omega = 5.0
         self.nominal_velocity = 1.0
         self.intersection_radius = .25
@@ -27,13 +25,13 @@ class Controller:
         if abs(delta_x) < self.intersection_radius and abs(delta_y) < self.intersection_radius:
             # We just entered an intersection
             random_number = random()
-            if random_number < 0.0:
+            if random_number < 0.5:
                 # Straight
                 next_waypoint = [self.grid_size, 0, 0]
-            elif random_number < 0.5:
+            elif random_number < 0.75:
                 # Left
                 next_waypoint = [0, -self.grid_size, -pi/2]
-            else:
+            else: # Right
                 next_waypoint = [0, self.grid_size, pi/2]
             psi0 = self.waypoint[2, 0]
             R = np.array([[cos(psi0), -sin(psi0), 0],
@@ -55,11 +53,9 @@ class Controller:
 
 
         u = [0, 0]
-        u[0] = self.nominal_velocity + self.vel_noise*random()
-        u[1] = dpsi*self.nominal_omega + self.omega_noise*random()
+        u[0] = self.nominal_velocity
+        u[1] = dpsi*self.nominal_omega
 
-        if abs(u[1]) > 1.0:
-            debug = 1
         return u
 
     def sat(self, u, umax, umin):

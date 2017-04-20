@@ -45,7 +45,8 @@ class Backend():
         self.agents = []
         self.optimized = True
 
-        self.keyframe_map = dict()
+        self.keyframe_index_to_id_map = dict()
+        self.keyframe_id_to_index_map = dict()
         self.keyframes = []
         self.current_keyframe_index = 0
 
@@ -53,7 +54,8 @@ class Backend():
     def add_keyframe(self, KF, node_id):
         # Add the keyframe to the map
         self.keyframes.append(KF)
-        self.keyframe_map[self.current_keyframe_index] = node_id
+        self.keyframe_index_to_id_map[self.current_keyframe_index] = node_id
+        self.keyframe_id_to_index_map[node_id] = self.current_keyframe_index
         self.current_keyframe_index += 1
 
 
@@ -90,16 +92,18 @@ class Backend():
         print("finding loop closures")
         for from_id in tqdm(self.G.node):
             KF_from = self.G.node[from_id]['KF']
-            indices = tree.query_ball_point(KF_from, self.LC_threshold, 2.0)
+            keyframe_from_index = self.keyframe_id_to_index_map[from_id]
+            indices = tree.query_ball_point(KF_from, self.LC_threshold)
             for index in indices:
-                if abs(self.current_keyframe_index - index) > 10:
-                    to_id = self.keyframe_map[index]
-                    P = [[0.001, 0, 0], [0, .001, 0], [0, 0, .001]]
+                if abs(keyframe_from_index - index) > 10:
+                    to_id = self.keyframe_index_to_id_map[index]
+                    P = [[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]]
                     KF_to = self.keyframes[index]
                     self.G.add_edge(from_id, to_id, covariance=P,
                                     transform=self.find_transform(np.array(KF_from), np.array(KF_to)),
                                     from_id=from_id, to_id=to_id)
                     lc_count += 1
+                    break
         print("found %d loop closures" % lc_count)
 
 
@@ -110,6 +114,9 @@ class Backend():
         R_I_to_i = np.array([[cos(psii), sin(psii)],
                              [-sin(psii), cos(psii)]])
         dx = xij_I.dot(R_I_to_i.T)
+
+        if np.shape(dx) != (2,):
+            debug  = 1
         dpsi = to_pose[2] - psii
 
         # Pack up and output the loop closure
@@ -137,6 +144,7 @@ class Backend():
                 y = nearest_known_pose[1] - edge['transform'][0] * sin(psi) - edge['transform'][1] * cos(psi)
 
             graph.node[node]['pose'] = [x, y, psi]
+
             return [x, y, psi]
 
     def optimize(self):
@@ -163,18 +171,7 @@ class Backend():
                 optimized_component = self.run_g2o(component)
                 self.plot_graph(optimized_component, "optimized", figure_handle=4, edge_color='b')
 
-                debug = 1
         plt.show()
-
-        debug = 1
-
-
-
-
-
-
-
-
 
     def run_g2o(self, graph):
         self.output_g2o(graph, "edges.g2o")

@@ -5,17 +5,17 @@ from tqdm import tqdm
 
 
 dt = 0.1
-time = np.arange(0, 600.01, dt)
+time = np.arange(0, 120.01, dt)
 
 robots = []
 controllers = []
-num_robots = 100
+num_robots = 500
 KF_frequency_s = 1.0
 
 map = Backend("Noisy Map")
 true_map = Backend("True Map")
 
-start_pose_range = [5, 5, 2]
+start_pose_range = [7, 8, 2]
 
 start_poses = [[randint(-start_pose_range[0], start_pose_range[0])*10,
                randint(-start_pose_range[1], start_pose_range[1])*10,
@@ -23,7 +23,7 @@ start_poses = [[randint(-start_pose_range[0], start_pose_range[0])*10,
 start_poses[0] = [0, 0, 0]
 
 P_perfect = [[0.00001, 0, 0], [0, 0.00001, 0], [0, 0, 0.00001]]
-G = np.array([[0.01, 0, 0], [0, 0.01, 0], [0, 0, 0.01]])
+G = np.array([[0.1, 0, 0], [0, 0.1, 0], [0, 0, 0.1]])
 print("simulating robots")
 for r in tqdm(range(num_robots)):
     # Run each robot through the trajectory
@@ -43,13 +43,6 @@ for r in tqdm(range(num_robots)):
     for edge, KF in zip(robots[r].edges, robots[r].keyframes):
         e = Edge(r, str(r) + "_" + str(i).zfill(3), str(r) + "_" + str(i+1).zfill(3), G, edge, KF)
         map.add_edge(e)
-        i += 1
-
-    i = 0
-    true_map.add_agent(r, KF=start_poses[r])
-    for edge, KF in zip(robots[r].true_edges, robots[r].keyframes):
-        e = Edge(r, str(r) + "_" + str(i).zfill(3), str(r) + "_" + str(i+1).zfill(3), P_perfect, edge, KF)
-        true_map.add_edge(e)
         i += 1
 
 # Find loop closures
