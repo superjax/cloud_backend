@@ -23,7 +23,7 @@ start_poses = [[randint(-start_pose_range[0], start_pose_range[0])*10,
 start_poses[0] = [0, 0, 0]
 
 P_perfect = np.array([[0.00001, 0, 0], [0, 0.00001, 0], [0, 0, 0.00001]])
-G = np.array([[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.05]])
+G = np.array([[0.01, 0, 0], [0, 0.01, 0], [0, 0, 0.1]])
 print("simulating robots")
 for r in tqdm(range(num_robots)):
     # Run each robot through the trajectory
