@@ -147,12 +147,53 @@ class Backend():
 
             return [x, y, psi]
 
+    def seed_graph(self, graph, node):
+        children = [node]
+        more_children = True
+
+        while more_children:
+            more_children = False
+            next_iteration_children = []
+            for child in children:
+                this_child_children, this_node_has_more_children = self.get_children_pose(graph, child)
+                if this_node_has_more_children:
+                    more_children = True
+                    next_iteration_children.extend(this_child_children)
+
+            children = next_iteration_children
+
+
+    def get_children_pose(self, graph, node):
+        more_children = False
+        children = []
+        for child in graph.neighbors(node):
+            if 'pose' not in graph.node[child]:
+                more_children = True
+                children.append(child)
+                edge = graph.edge[node][child]
+
+                if edge['from_id'] == node: # edge is pointing from node to child
+                    psi0 = graph.node[node]['pose'][2]
+                    x = graph.node[node]['pose'][0] + edge['transform'][0] * cos(psi0) - edge['transform'][1] * sin(psi0)
+                    y = graph.node[node]['pose'][1] + edge['transform'][0] * sin(psi0) + edge['transform'][1] * cos(psi0)
+                    psi = psi0 + edge['transform'][2]
+                else: # edge is pointing from child to node
+                    psi = graph.node[node]['pose'][2] - edge['transform'][2]
+                    x = graph.node[node]['pose'][0] - edge['transform'][0] * cos(psi) + edge['transform'][1] * sin(psi)
+                    y = graph.node[node]['pose'][1] - edge['transform'][0] * sin(psi) - edge['transform'][1] * cos(psi)
+
+                graph.node[child]['pose'] = [x, y, psi]
+        return children, more_children
+
+
+
     def optimize(self):
         # Find loop closures
         self.find_loop_closures()
 
         # plt.ion()
-        self.plot_graph(self.G, "full graph (TRUTH)")
+        self.plot_graph(self.G, "full graph (TRUTH)", figure_handle=0)
+        self.plot_agent(self.G, agent=0, figure_handle=0)
 
         # Get a minimum spanning tree of nodes connected to our origin node
         min_spanning_tree = nx.Graph()
@@ -161,15 +202,15 @@ class Backend():
                 self.plot_graph(component, "connected component truth", figure_handle=2, edge_color='r')
                 # Find Initial Guess for node positions
                 component.node['0_000']['pose'] = [0, 0, 0]
-                print("seeding initial graph")
-                for node in tqdm(component.nodes()):
-                    self.find_pose(component, node, '0_000')
+                self.seed_graph(component, '0_000')
                 self.plot_graph(component, "connected component unoptimized", figure_handle=3, edge_color='m')
+                self.plot_agent(component, agent=0, figure_handle=3)
 
                 # Let GTSAM crunch it
                 print("optimizing")
                 optimized_component = self.run_g2o(component)
                 self.plot_graph(optimized_component, "optimized", figure_handle=4, edge_color='b')
+                self.plot_agent(optimized_component, agent=0, figure_handle=4)
 
         plt.show()
 
@@ -291,5 +332,26 @@ class Backend():
         #     self.ax.plot(y, x , lc_color, lw='0.1', zorder=1)
 
         plt.axis("equal")
+
+    def plot_agent(self,graph, agent, figure_handle=0, color='c'):
+        nodes = sorted(graph.node)
+        agent_nodes = []
+        x = []
+        y = []
+        for n in nodes:
+            if int(n.split("_")[0]) == agent:
+                if 'pose' in graph.node[n]:
+                    x.append(graph.node[n]['pose'][0])
+                    y.append(graph.node[n]['pose'][1])
+                else:
+                    x.append(graph.node[n]['KF'][0])
+                    y.append(graph.node[n]['KF'][1])
+
+        if figure_handle:
+            plt.figure(figure_handle)
+        else:
+            plt.figure()
+
+        plt.plot(x, y, color=color, lw=2)
 
 
